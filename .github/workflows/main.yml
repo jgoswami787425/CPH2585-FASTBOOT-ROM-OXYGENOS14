@@ -1,4 +1,4 @@
-name: Build Custom ROM
+name: Build VoltageOS ROM
 
 on:
   workflow_dispatch:
@@ -6,39 +6,65 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 600  # 10 hours max build time
+
     steps:
+      # 🧱 Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      # 🧰 Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt update
-          sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib \
-            libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev \
-            libxml2-utils xsltproc unzip fontconfig python-is-python3
+          sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib \
+            g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev \
+            ccache libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python-is-python3 \
+            openjdk-11-jdk jq rsync
 
-      - name: Sync ROM source
+      # ⚙️ Install repo tool
+      - name: Install repo tool
         run: |
-          mkdir rom && cd rom
-          repo init -u https://github.com/LineageOS/android.git -b lineage-21
-          repo sync -j$(nproc)
+          mkdir -p ~/.bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          chmod a+rx ~/.bin/repo
+          echo 'export PATH=~/.bin:$PATH' >> ~/.bashrc
+          export PATH=~/.bin:$PATH
 
-      - name: Clone device, vendor, kernel trees
+      # 🌀 Initialize VoltageOS repo
+      - name: Initialize VoltageOS source
         run: |
-          cd rom
-          git clone https://github.com/YourName/device_xiaomi_codename device/xiaomi/codename
-          git clone https://github.com/YourName/vendor_xiaomi_codename vendor/xiaomi/codename
-          git clone https://github.com/YourName/kernel_xiaomi_codename kernel/xiaomi/codename
+          mkdir voltage && cd voltage
+          repo init -u https://github.com/VoltageOS/manifest.git -b fifteen
+          repo sync -j$(nproc) --force-sync --no-tags --no-clone-bundle
 
+      # 📁 Clone device, vendor, and kernel trees
+      - name: Clone device, vendor, and kernel
+        run: |
+          cd voltage
+          # 🔽 Replace these links with your actual trees
+          git clone https://github.com/YourGitHub/device_oneplus_andes device/oneplus/andes
+          git clone https://github.com/YourGitHub/vendor_oneplus_andes vendor/oneplus/andes
+          git clone https://github.com/YourGitHub/kernel_oneplus_andes kernel/oneplus/andes
+
+      # 🧩 Setup build environment
+      - name: Setup environment
+        run: |
+          cd voltage
+          source build/envsetup.sh
+          lunch voltage_andes-userdebug
+
+      # ⚡ Build VoltageOS
       - name: Build ROM
         run: |
-          cd rom
-          source build/envsetup.sh
-          lunch lineage_codename-userdebug
+          cd voltage
+          export USE_CCACHE=1
+          ccache -M 10G
           make bacon -j$(nproc)
 
-      - name: Upload Output
+      # 📦 Upload build artifact (ZIP)
+      - name: Upload ROM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rom-output
-          path: rom/out/target/product/codename/*.zip
+          name: VoltageOS-ROM
+          path: voltage/out/target/product/andes/*.zip
